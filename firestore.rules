@@ -1,0 +1,186 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: {userId}
+    // Fields:
+    //   - uid: string (required) - The unique ID of the user.
+    //   - email: string (required, email format) - The user's email address.
+    //   - displayName: string (optional) - The user's display name.
+    //   - photoURL: string (optional) - The user's profile photo URL.
+    //   - createdAt: timestamp (optional) - When the account was created.
+    //
+    // Collection: users/{userId}/notepad_files
+    // Document ID: {fileId}
+    // Fields:
+    //   - id: string (required) - The unique ID of the file.
+    //   - uid: string (required) - The ID of the user who owns the file.
+    //   - title: string (required, max 100 chars) - The title of the document.
+    //   - content: string (required, max 10000 chars) - The text content.
+    //   - updatedAt: timestamp (required) - When the document was last updated.
+    //
+    // Collection: users/{userId}/browser_history
+    // Document ID: {historyId}
+    // Fields:
+    //   - id: string (required) - The unique ID of the history item.
+    //   - uid: string (required) - The ID of the user who visited the URL.
+    //   - url: string (required, max 2000 chars) - The visited URL.
+    //   - title: string (required, max 200 chars) - The title of the page.
+    //   - timestamp: timestamp (required) - When the URL was visited.
+    //
+    // Collection: users/{userId}/gemini_chats
+    // Document ID: {chatId}
+    // Fields:
+    //   - id: string (required) - The unique ID of the chat session.
+    //   - uid: string (required) - The ID of the user who owns the chat.
+    //   - messages: list (required, max 100 items) - The chat messages.
+    //   - updatedAt: timestamp (required) - When the chat was last updated.
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (
+          (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin') ||
+          (request.auth.token.email == "chenfarnon@gmail.com" && 
+           request.auth.token.get('email_verified', false) == true)
+        );
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidUser(data) {
+      return hasRequiredFields(['uid', 'email']) &&
+             hasOnlyAllowedFields(['uid', 'email', 'displayName', 'photoURL', 'createdAt', 'role', 'password']) &&
+             data.uid == request.auth.uid &&
+             isValidEmail(data.email) &&
+             (data.get('role', 'user') == 'user' || isAdmin());
+    }
+
+    function isValidPublicUser(data) {
+      return hasRequiredFields(['uid', 'displayName']) &&
+             hasOnlyAllowedFields(['uid', 'displayName', 'photoURL', 'hasPassword']) &&
+             data.uid == request.auth.uid;
+    }
+
+    function isValidNotepadFile(data) {
+      return hasRequiredFields(['id', 'uid', 'title', 'content', 'updatedAt']) &&
+             hasOnlyAllowedFields(['id', 'uid', 'title', 'content', 'updatedAt']) &&
+             data.uid == request.auth.uid &&
+             data.title is string && data.title.size() <= 100 &&
+             data.content is string && data.content.size() <= 10000 &&
+             data.updatedAt is timestamp;
+    }
+
+    function isValidBrowserHistory(data) {
+      return hasRequiredFields(['id', 'uid', 'url', 'title', 'timestamp']) &&
+             hasOnlyAllowedFields(['id', 'uid', 'url', 'title', 'timestamp']) &&
+             data.uid == request.auth.uid &&
+             data.url is string && data.url.size() <= 2000 &&
+             data.title is string && data.title.size() <= 200 &&
+             data.timestamp is timestamp;
+    }
+
+    function isValidGeminiChat(data) {
+      return hasRequiredFields(['id', 'uid', 'messages', 'updatedAt']) &&
+             hasOnlyAllowedFields(['id', 'uid', 'messages', 'updatedAt']) &&
+             data.uid == request.auth.uid &&
+             data.messages is list && data.messages.size() <= 100 &&
+             data.updatedAt is timestamp;
+    }
+
+    function isValidUserSettings(data) {
+      return hasRequiredFields(['wallpaper', 'deletedAppIds']) &&
+             hasOnlyAllowedFields(['wallpaper', 'deletedAppIds', 'updatedAt']) &&
+             data.wallpaper is string && data.wallpaper.size() <= 2000 &&
+             data.deletedAppIds is list && data.deletedAppIds.size() <= 50;
+    }
+
+    function isValidAppData(data) {
+      return hasRequiredFields(['content']) &&
+             hasOnlyAllowedFields(['content', 'updatedAt']) &&
+             data.content is string && data.content.size() <= 50000;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    match /public_users/{userId} {
+      allow read: if true;
+      allow create, update: if isOwner(userId) && isValidPublicUser(request.resource.data);
+    }
+
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isAuthenticated() && isValidUser(request.resource.data) && (request.resource.data.role == 'user' || isAdmin());
+      allow update: if isAuthenticated() && isValidUser(request.resource.data) && (request.resource.data.role == resource.data.role || isAdmin());
+      
+      match /settings/{settingId} {
+        allow read: if isOwner(userId) || isAdmin();
+        allow create, update: if isOwner(userId) && isValidUserSettings(request.resource.data);
+      }
+
+      match /apps/{appId} {
+        allow read: if isOwner(userId) || isAdmin();
+        allow create, update: if isOwner(userId) && isValidAppData(request.resource.data);
+      }
+
+      match /notepad_files/{fileId} {
+        allow read: if isOwner(userId) || isAdmin();
+        allow create, update: if isOwner(userId) && isValidNotepadFile(request.resource.data);
+        allow delete: if isOwner(userId);
+      }
+
+      match /browser_history/{historyId} {
+        allow read: if isOwner(userId) || isAdmin();
+        allow create, update: if isOwner(userId) && isValidBrowserHistory(request.resource.data);
+        allow delete: if isOwner(userId);
+      }
+
+      match /gemini_chats/{chatId} {
+        allow read: if isOwner(userId) || isAdmin();
+        allow create, update: if isOwner(userId) && isValidGeminiChat(request.resource.data);
+        allow delete: if isOwner(userId);
+      }
+    }
+  }
+}

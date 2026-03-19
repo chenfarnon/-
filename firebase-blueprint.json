@@ -1,0 +1,90 @@
+{
+  "entities": {
+    "PublicUser": {
+      "title": "Public User Profile",
+      "description": "Publicly visible user information for the login screen",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "hasPassword": { "type": "boolean" }
+      },
+      "required": ["uid", "displayName"]
+    },
+    "UserAccount": {
+      "title": "User Account",
+      "description": "Private user account information",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "password": { "type": "string" },
+        "role": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email"]
+    },
+    "UserSettings": {
+      "title": "User Settings",
+      "description": "Stores user-specific desktop settings and preferences",
+      "type": "object",
+      "properties": {
+        "wallpaper": {
+          "type": "string",
+          "description": "URL of the desktop wallpaper"
+        },
+        "deletedAppIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of app IDs that are in the recycle bin"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Last update timestamp"
+        }
+      },
+      "required": ["wallpaper", "deletedAppIds"]
+    },
+    "Note": {
+      "title": "Note",
+      "description": "A user's notepad content",
+      "type": "object",
+      "properties": {
+        "content": {
+          "type": "string",
+          "description": "The text content of the notepad"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Last update timestamp"
+        }
+      },
+      "required": ["content"]
+    }
+  },
+  "firestore": {
+    "/public_users/{userId}": {
+      "schema": "PublicUser",
+      "description": "Publicly visible user profiles for the login screen"
+    },
+    "/users/{userId}": {
+      "schema": "UserAccount",
+      "description": "Private user account data"
+    },
+    "/users/{userId}/settings/desktop": {
+      "schema": "UserSettings",
+      "description": "User's desktop configuration"
+    },
+    "/users/{userId}/apps/notepad": {
+      "schema": "Note",
+      "description": "User's notepad data"
+    }
+  }
+}
